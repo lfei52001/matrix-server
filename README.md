@@ -1,5 +1,5 @@
 # matrix-server
-搭建matrix聊天服务器，并且支持federation通信，数据库替换为PostgreSQL，一键安装脚本.                                                                             
+搭建matrix聊天服务器，并且支持federation通信，数据库替换为PostgreSQL（官方默认采用SQLite，性能较低），一键安装脚本.                                                                             
 一.需要准备的东西：                                                                                                                             
 1.两个域名：分别用于matrix服务器和element前端（element的搭建不是必要条件，可以不搭建）.                                                                                                   
 2.由于注册时启用邮箱验证，故需准备smtp邮箱和专用密码.                                                                                             
