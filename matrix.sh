@@ -106,6 +106,16 @@ DEPLOY_ELEMENT=${DEPLOY_ELEMENT:-n}
 if [[ "$DEPLOY_ELEMENT" =~ ^[Yy]$ ]]; then
   prompt_and_validate "请输入 Element 域名（例如：element.example.com）： " ELEMENT_DOMAIN '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' "Element 域名"
 fi
+# 询问是否要求注册时需要邮箱
+echo "是否要求注册时提供邮箱？（y/n，默认 n）： "
+read -r REQUIRE_EMAIL
+REQUIRE_EMAIL=${REQUIRE_EMAIL:-n}
+if [[ "$REQUIRE_EMAIL" =~ ^[Yy]$ ]]; then
+  EMAIL_REGISTRATION_CONFIG="registrations_require_3pid:
+  - email"
+else
+  EMAIL_REGISTRATION_CONFIG=""
+fi
 # 1. 安装 Docker
 echo "安装 Docker..."
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -209,8 +219,7 @@ logging:
   handlers:
     console:
       level: DEBUG
-registrations_require_3pid:
-  - email
+$EMAIL_REGISTRATION_CONFIG
 email:
   smtp_host: smtp.gmail.com
   smtp_port: 587
