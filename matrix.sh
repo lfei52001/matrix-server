@@ -167,14 +167,20 @@ EOF
 echo "生成 Synapse 配置文件..."
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
 
-# 5. 配置 PostgreSQL 数据库
+# 5. 检查 homeserver.yaml 是否存在
+if [ ! -f "synapse_data/homeserver.yaml" ]; then
+  echo "错误：homeserver.yaml 文件未找到，请检查 Synapse 配置生成步骤！"
+  exit 1
+fi
+
+# 6. 配置 PostgreSQL 数据库
 echo "配置 PostgreSQL 数据库..."
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 
-# 6. 启用注册并配置日志
+# 7. 启用注册并配置日志，使用 tee -a 确保写入
 echo "启用注册并配置日志..."
-cat >> synapse_data/homeserver.yaml << EOF
+tee -a synapse_data/homeserver.yaml << EOF
 enable_registration: true
 logging:
   handlers:
@@ -182,10 +188,20 @@ logging:
       level: DEBUG
 EOF
 
-# 7. 可选：配置邮箱验证
+# 验证是否成功写入
+if ! grep -q "enable_registration: true" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 enable_registration 配置写入 homeserver.yaml！"
+  exit 1
+fi
+if ! grep -q "logging:" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 logging 配置写入 homeserver.yaml！"
+  exit 1
+fi
+
+# 8. 可选：配置邮箱验证
 if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
     echo "配置邮箱验证..."
-    cat >> synapse_data/homeserver.yaml << EOF
+    tee -a synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
   - email
 email:
@@ -200,10 +216,10 @@ email:
 EOF
 fi
 
-# 8. 可选：配置第三方登录（Google/GitHub）
+# 9. 可选：配置第三方登录（Google/GitHub）
 if [ "$ENABLE_OIDC" = "yes" ]; then
     echo "配置第三方登录（Google/GitHub）..."
-    cat >> synapse_data/homeserver.yaml << EOF
+    tee -a synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
     idp_name: Google
@@ -236,11 +252,11 @@ oidc_providers:
 EOF
 fi
 
-# 9. 启动 Matrix 服务
+# 10. 启动 Matrix 服务
 echo "启动 Matrix 服务..."
 docker compose up -d
 
-# 10. 部署 Nginx
+# 11. 部署 Nginx
 echo "部署 Nginx..."
 mkdir -p /root/nginx
 cd /root/nginx
@@ -289,7 +305,7 @@ volumes:
   acme:
 EOF
 
-# 11. 创建 Nginx 自定义配置
+# 12. 创建 Nginx 自定义配置
 echo "创建 Nginx 自定义配置..."
 mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
 cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
@@ -299,11 +315,11 @@ location /.well-known/matrix/server {
 }
 EOF
 
-# 12. 启动 Nginx 服务
+# 13. 启动 Nginx 服务
 echo "启动 Nginx 服务..."
 docker compose up -d
 
-# 13. 可选：部署 Element Web 客户端
+# 14. 可选：部署 Element Web 客户端
 if [ "$ENABLE_ELEMENT" = "yes" ]; then
     echo "部署 Element Web 客户端..."
     mkdir -p /root/element
@@ -311,7 +327,7 @@ if [ "$ENABLE_ELEMENT" = "yes" ]; then
     cat > docker-compose.yml << EOF
 services:
   element:
-    image: vectorim/element-web:v1.10.0
+    image: vectorim/element-web:v1.8.0
     container_name: element
     volumes:
       - ./config.${ELEMENT_DOMAIN}.json:/app/config.${ELEMENT_DOMAIN}.json
