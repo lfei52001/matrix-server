@@ -2,156 +2,125 @@
 
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
-  echo "请以 root 权限运行此脚本"
+  echo "错误：请以 root 权限运行此脚本（使用 sudo 或 root 用户）"
   exit 1
 fi
 
-# 自动生成安全的随机密钥
-REGISTRATION_SECRET=$(openssl rand -base64 32)
-MACAROON_SECRET=$(openssl rand -base64 32)
-FORM_SECRET=$(openssl rand -base64 32)
+# 在任何错误时退出
+set -e
 
-# 交互式输入变量（无默认值）
-echo "请输入 Matrix 域名（例如：matrix.example.com）："
-read -r -p "" MATRIX_DOMAIN
+# 交互式输入 Matrix 服务器域名和 SSL 证书邮箱
+echo "请输入 Matrix 服务器域名（例如 matrix.example.com）："
+read -r MATRIX_DOMAIN
 if [ -z "$MATRIX_DOMAIN" ]; then
-  echo "错误：Matrix 域名不能为空"
-  exit 1
-fi
-if ! echo "$MATRIX_DOMAIN" | grep -qE '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-  echo "错误：无效的 Matrix 域名格式"
+  echo "错误：Matrix 服务器域名不能为空！"
   exit 1
 fi
 
-echo "请输入 Element 域名（例如：element.example.com）："
-read -r -p "" ELEMENT_DOMAIN
-if [ -z "$ELEMENT_DOMAIN" ]; then
-  echo "错误：Element 域名不能为空"
-  exit 1
-fi
-if ! echo "$ELEMENT_DOMAIN" | grep -qE '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-  echo "错误：无效的 Element 域名格式"
+echo "请输入用于 SSL 证书的邮箱地址："
+read -r EMAIL_ADDRESS
+if [ -z "$EMAIL_ADDRESS" ]; then
+  echo "错误：邮箱地址不能为空！"
   exit 1
 fi
 
-echo "请输入用于 Let's Encrypt 和通知的邮箱（例如：user@example.com）："
-read -r -p "" EMAIL
-if [ -z "$EMAIL" ]; then
-  echo "错误：邮箱不能为空"
-  exit 1
-fi
-if ! echo "$EMAIL" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-  echo "错误：无效的邮箱格式"
-  exit 1
-fi
+# 交互式输入是否启用邮箱验证
+echo "是否启用邮箱验证？(yes/no)"
+read -r ENABLE_EMAIL_VERIFICATION
+ENABLE_EMAIL_VERIFICATION=$(echo "$ENABLE_EMAIL_VERIFICATION" | tr '[:upper:]' '[:lower:]')
 
-echo "请输入 PostgreSQL 密码："
-read -r -s -p "" POSTGRES_PASSWORD
-echo
-if [ -z "$POSTGRES_PASSWORD" ]; then
-  echo "错误：PostgreSQL 密码不能为空"
-  exit 1
-fi
+# 如果启用邮箱验证，输入 SMTP 邮箱和密码
+if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
+  echo "请输入 SMTP 邮箱地址（用于邮箱验证，例如 your-email@gmail.com）："
+  read -r SMTP_USER
+  if [ -z "$SMTP_USER" ]; then
+    echo "错误：SMTP 邮箱地址不能为空！"
+    exit 1
+  fi
 
-echo "请输入 SMTP 用户邮箱（例如：user@gmail.com）："
-read -r -p "" SMTP_USER
-if [ -z "$SMTP_USER" ]; then
-  echo "错误：SMTP 用户邮箱不能为空"
-  exit 1
-fi
-if ! echo "$SMTP_USER" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-  echo "错误：无效的 SMTP 邮箱格式"
-  exit 1
+  echo "请输入 SMTP 邮箱的应用专用密码（Google App Password）："
+  read -r SMTP_PASS
+  if [ -z "$SMTP_PASS" ]; then
+    echo "错误：SMTP 应用专用密码不能为空！"
+    exit 1
+  fi
 fi
 
-echo "请输入 SMTP 密码（Google 应用专用密码）："
-read -r -s -p "" SMTP_PASS
-echo
-if [ -z "$SMTP_PASS" ]; then
-  echo "错误：SMTP 密码不能为空"
-  exit 1
+# 交互式输入是否启用第三方登录
+echo "是否启用第三方登录（Google/GitHub）？(yes/no)"
+read -r ENABLE_OIDC
+ENABLE_OIDC=$(echo "$ENABLE_OIDC" | tr '[:upper:]' '[:lower:]')
+
+# 如果启用第三方登录，输入 Google 和 GitHub 的 client_id 和 client_secret
+if [ "$ENABLE_OIDC" = "yes" ]; then
+  echo "请输入 Google OIDC client_id："
+  read -r GOOGLE_CLIENT_ID
+  if [ -z "$GOOGLE_CLIENT_ID" ]; then
+    echo "错误：Google client_id 不能为空！"
+    exit 1
+  fi
+
+  echo "请输入 Google OIDC client_secret："
+  read -r GOOGLE_CLIENT_SECRET
+  if [ -z "$GOOGLE_CLIENT_SECRET" ]; then
+    echo "错误：Google client_secret 不能为空！"
+    exit 1
+  fi
+
+  echo "请输入 GitHub OIDC client_id："
+  read -r GITHUB_CLIENT_ID
+  if [ -z "$GITHUB_CLIENT_ID" ]; then
+    echo "错误：GitHub client_id 不能为空！"
+    exit 1
+  fi
+
+  echo "请输入 GitHub OIDC client_secret："
+  read -r GITHUB_CLIENT_SECRET
+  if [ -z "$GITHUB_CLIENT_SECRET" ]; then
+    echo "错误：GitHub client_secret 不能为空！"
+    exit 1
+  fi
 fi
 
-echo "请输入 Google OAuth 客户端 ID（按 Enter 禁用 Google OIDC）："
-read -r -p "" GOOGLE_CLIENT_ID
+# 交互式输入是否部署 Element Web 客户端
+echo "是否部署 Element Web 客户端？(yes/no)"
+read -r ENABLE_ELEMENT
+ENABLE_ELEMENT=$(echo "$ENABLE_ELEMENT" | tr '[:upper:]' '[:lower:]')
 
-echo "请输入 Google OAuth 客户端密钥（按 Enter 禁用 Google OIDC）："
-read -r -s -p "" GOOGLE_CLIENT_SECRET
-echo
-
-echo "请输入 GitHub OAuth 客户端 ID（按 Enter 禁用 GitHub OIDC）："
-read -r -p "" GITHUB_CLIENT_ID
-
-echo "请输入 GitHub OAuth 客户端密钥（按 Enter 禁用 GitHub OIDC）："
-read -r -s -p "" GITHUB_CLIENT_SECRET
-echo
-
-# 如果 Google 或 GitHub OIDC 为空，禁用 OIDC 配置
-if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$GOOGLE_CLIENT_SECRET" ] || [ -z "$GITHUB_CLIENT_ID" ] || [ -z "$GITHUB_CLIENT_SECRET" ]; then
-  OIDC_CONFIG=""
-else
-  OIDC_CONFIG=$(cat << EOF
-oidc_providers:
-  - idp_id: google
-    idp_name: Google
-    idp_brand: "google"
-    issuer: "https://accounts.google.com/"
-    client_id: "$GOOGLE_CLIENT_ID"
-    client_secret: "$GOOGLE_CLIENT_SECRET"
-    scopes: ["openid", "profile", "email"]
-    user_mapping_provider:
-      config:
-        localpart_template: "{{ user.given_name|lower }}"
-        display_name_template: "{{ user.name }}"
-        email_template: "{{ user.email }}"
-  - idp_id: github
-    idp_name: Github
-    idp_brand: "github"
-    discover: false
-    issuer: "https://github.com/"
-    client_id: "$GITHUB_CLIENT_ID"
-    client_secret: "$GITHUB_CLIENT_SECRET"
-    authorization_endpoint: "https://github.com/login/oauth/authorize"
-    token_endpoint: "https://github.com/login/oauth/access_token"
-    userinfo_endpoint: "https://api.github.com/user"
-    scopes: ["read:user"]
-    user_mapping_provider:
-      config:
-        subject_claim: "id"
-        localpart_template: "{{ user.login }}"
-        display_name_template: "{{ user.name }}"
-EOF
-)
+# 如果部署 Element Web 客户端，输入 Element 域名
+if [ "$ENABLE_ELEMENT" = "yes" ]; then
+  echo "请输入 Element Web 客户端域名（例如 element.example.com）："
+  read -r ELEMENT_DOMAIN
+  if [ -z "$ELEMENT_DOMAIN" ]; then
+    echo "错误：Element Web 客户端域名不能为空！"
+    exit 1
+  fi
 fi
+
+# 生成随机 PostgreSQL 密码
+POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
+
+echo "开始安装 Matrix Synapse 服务器..."
 
 # 1. 安装 Docker
 echo "安装 Docker..."
 curl -fsSL https://get.docker.com -o get-docker.sh
-if ! sudo sh get-docker.sh; then
-  echo "Docker 安装失败"
-  exit 1
-fi
+sh get-docker.sh
 rm get-docker.sh
 
 # 安装 Docker Compose
 echo "安装 Docker Compose..."
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-if ! docker-compose --version; then
-  echo "Docker Compose 安装失败"
-  exit 1
-fi
+curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
 
-# 2. 创建 Docker 网络
-echo "创建 Docker 网络 matrix_network..."
-docker network create matrix_network || true
+# 2. 创建 Matrix 网络和目录
+echo "创建 Matrix 网络和目录..."
+docker network create matrix_network
+mkdir -p /root/matrix
+cd /root/matrix
 
-# 3. 部署 Matrix (Synapse + PostgreSQL)
-echo "设置 Matrix 环境..."
-mkdir -p matrix
-cd matrix
-
-# 创建 docker-compose.yml
+# 3. 创建 docker-compose.yml
+echo "创建 docker-compose.yml..."
 cat > docker-compose.yml << EOF
 services:
   postgres:
@@ -159,7 +128,7 @@ services:
     container_name: postgres
     environment:
       POSTGRES_USER: synapse_user
-      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: synapse
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
@@ -171,10 +140,10 @@ services:
     image: matrixdotorg/synapse:latest
     container_name: synapse
     environment:
-      VIRTUAL_HOST: "$MATRIX_DOMAIN"
+      VIRTUAL_HOST: "${MATRIX_DOMAIN}"
       VIRTUAL_PORT: 8008
-      LETSENCRYPT_HOST: "$MATRIX_DOMAIN"
-      SYNAPSE_SERVER_NAME: "$MATRIX_DOMAIN"
+      LETSENCRYPT_HOST: "${MATRIX_DOMAIN}"
+      SYNAPSE_SERVER_NAME: "${MATRIX_DOMAIN}"
       SYNAPSE_REPORT_STATS: "no"
     volumes:
       - ./synapse_data:/data
@@ -194,70 +163,87 @@ networks:
     name: matrix_network
 EOF
 
-# 生成 Synapse 配置文件
+# 4. 生成 Synapse 配置文件
 echo "生成 Synapse 配置文件..."
-docker compose run --rm -e SYNAPSE_SERVER_NAME="$MATRIX_DOMAIN" -e SYNAPSE_REPORT_STATS=no synapse generate
+docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
 
-# 编辑 homeserver.yaml
-cat > synapse_data/homeserver.yaml << EOF
-server_name: "$MATRIX_DOMAIN"
-pid_file: /data/homeserver.pid
-listeners:
-  - port: 8008
-    tls: false
-    type: http
-    x_forwarded: true
-    resources:
-      - names: [client, federation]
-        compress: false
-database:
-  name: psycopg2
-  args:
-    user: synapse_user
-    password: $POSTGRES_PASSWORD
-    database: synapse
-    host: postgres
-    cp_min: 5
-    cp_max: 10
-log_config: "/data/$MATRIX_DOMAIN.log.config"
-media_store_path: /data/media_store
-registration_shared_secret: "$REGISTRATION_SECRET"
-report_stats: false
-macaroon_secret_key: "$MACAROON_SECRET"
-form_secret: "$FORM_SECRET"
-signing_key_path: "/data/$MATRIX_DOMAIN.signing.key"
-trusted_key_servers:
-  - server_name: "matrix.org"
+# 5. 配置 PostgreSQL 数据库
+echo "配置 PostgreSQL 数据库..."
+sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
+sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
+
+# 6. 启用注册并配置日志
+echo "启用注册并配置日志..."
+cat >> synapse_data/homeserver.yaml << EOF
 enable_registration: true
 logging:
   handlers:
     console:
       level: DEBUG
+EOF
+
+# 7. 可选：配置邮箱验证
+if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
+    echo "配置邮箱验证..."
+    cat >> synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
   - email
 email:
   smtp_host: smtp.gmail.com
   smtp_port: 587
-  smtp_user: "$SMTP_USER"
-  smtp_pass: "$SMTP_PASS"
+  smtp_user: "${SMTP_USER}"
+  smtp_pass: "${SMTP_PASS}"
   require_transport_security: true
   enable_notifs: true
-  notif_from: "Matrix Server <$SMTP_USER>"
+  notif_from: "Matrix Server <${SMTP_USER}>"
   app_name: Matrix
-$OIDC_CONFIG
 EOF
+fi
 
-# 启动 Matrix 容器
-echo "启动 Matrix 容器..."
+# 8. 可选：配置第三方登录（Google/GitHub）
+if [ "$ENABLE_OIDC" = "yes" ]; then
+    echo "配置第三方登录（Google/GitHub）..."
+    cat >> synapse_data/homeserver.yaml << EOF
+oidc_providers:
+  - idp_id: google
+    idp_name: Google
+    idp_brand: "google"
+    issuer: "https://accounts.google.com/"
+    client_id: "${GOOGLE_CLIENT_ID}"
+    client_secret: "${GOOGLE_CLIENT_SECRET}"
+    scopes: ["openid", "profile", "email"]
+    user_mapping_provider:
+      config:
+        localpart_template: "{{ user.given_name|lower }}"
+        display_name_template: "{{ user.name }}"
+        email_template: "{{ user.email }}"
+  - idp_id: github
+    idp_name: Github
+    idp_brand: "github"
+    discover: false
+    issuer: "https://github.com/"
+    client_id: "${GITHUB_CLIENT_ID}"
+    client_secret: "${GITHUB_CLIENT_SECRET}"
+    authorization_endpoint: "https://github.com/login/oauth/authorize"
+    token_endpoint: "https://github.com/login/oauth/access_token"
+    userinfo_endpoint: "https://api.github.com/user"
+    scopes: ["read:user"]
+    user_mapping_provider:
+      config:
+        subject_claim: "id"
+        localpart_template: "{{ user.login }}"
+        display_name_template: "{{ user.name }}"
+EOF
+fi
+
+# 9. 启动 Matrix 服务
+echo "启动 Matrix 服务..."
 docker compose up -d
-cd ..
 
-# 4. 部署 Nginx
-echo "设置 Nginx 环境..."
-mkdir -p nginx
-cd nginx
-
-# 创建 Nginx docker-compose.yml
+# 10. 部署 Nginx
+echo "部署 Nginx..."
+mkdir -p /root/nginx
+cd /root/nginx
 cat > docker-compose.yml << EOF
 services:
   nginx-proxy:
@@ -281,7 +267,7 @@ services:
     image: nginxproxy/acme-companion
     container_name: nginx-proxy-acme
     environment:
-      - DEFAULT_EMAIL=$EMAIL
+      - DEFAULT_EMAIL=${EMAIL_ADDRESS}
     volumes_from:
       - nginx-proxy
     volumes:
@@ -303,45 +289,38 @@ volumes:
   acme:
 EOF
 
-# 启动 Nginx 容器
-echo "启动 Nginx 容器..."
-docker compose up -d
-
-# 5. 创建 Nginx 自定义配置
+# 11. 创建 Nginx 自定义配置
 echo "创建 Nginx 自定义配置..."
 mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
-cat > /var/lib/docker/volumes/nginx_vhost/_data/$MATRIX_DOMAIN << EOF
+cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
 client_max_body_size 50m;
 location /.well-known/matrix/server {
-    return 200 '{"m.server": "$MATRIX_DOMAIN:443"}';
+    return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
 }
 EOF
 
-# 重启 Nginx 容器
-echo "重启 Nginx 容器..."
-docker compose down
+# 12. 启动 Nginx 服务
+echo "启动 Nginx 服务..."
 docker compose up -d
-cd ..
 
-# 6. 部署 Element
-echo "设置 Element 环境..."
-mkdir -p element
-cd element
-
-# 创建 Element docker-compose.yml
-cat > docker-compose.yml << EOF
+# 13. 可选：部署 Element Web 客户端
+if [ "$ENABLE_ELEMENT" = "yes" ]; then
+    echo "部署 Element Web 客户端..."
+    mkdir -p /root/element
+    cd /root/element
+    cat > docker-compose.yml << EOF
 services:
   element:
-    image: vectorim/element-web:v1.8.0
+    image: vectorim/element-web:v1.10.0
     container_name: element
     volumes:
-      - ./config.$ELEMENT_DOMAIN.json:/app/config.$ELEMENT_DOMAIN.json
+      - ./config.element.json:/app/config.element.json
     environment:
-      - VIRTUAL_HOST=$ELEMENT_DOMAIN
+      - VIRTUAL_HOST=${ELEMENT_DOMAIN}
       - VIRTUAL_PORT=80
       - VIRTUAL_PROTO=http
-      - LETSENCRYPT_HOST=$ELEMENT_DOMAIN
-      - LETSENCRYPT_EMAIL=$EMAIL
+      - LETSENCRYPT_HOST=${ELEMENT_DOMAIN}
+      - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
     networks:
       - matrix_network
     restart: unless-stopped
@@ -351,13 +330,12 @@ networks:
     external: true
 EOF
 
-# 创建 Element 配置文件
-cat > config.$ELEMENT_DOMAIN.json << EOF
+    cat > config.element.json << EOF
 {
   "default_server_config": {
     "m.homeserver": {
-      "base_url": "https://$MATRIX_DOMAIN",
-      "server_name": "$MATRIX_DOMAIN"
+      "base_url": "https://${MATRIX_DOMAIN}",
+      "server_name": "${MATRIX_DOMAIN}"
     },
     "m.identity_server": {
       "base_url": "https://vector.im"
@@ -374,14 +352,17 @@ cat > config.$ELEMENT_DOMAIN.json << EOF
   "disable_guests": false,
   "disable_login_language_selector": false,
   "disable_3pid_login": false,
-  "permalink_prefix": "https://$ELEMENT_DOMAIN"
+  "permalink_prefix": "https://${ELEMENT_DOMAIN}"
 }
 EOF
 
-# 启动 Element 容器
-echo "启动 Element 容器..."
-docker compose up -d
+    docker compose up -d
+fi
 
-echo "Matrix、Nginx 和 Element 部署完成！"
-echo "访问 Matrix: https://$MATRIX_DOMAIN"
-echo "访问 Element: https://$ELEMENT_DOMAIN"
+echo "Matrix Synapse 服务器安装完成！"
+echo "PostgreSQL 密码: ${POSTGRES_PASSWORD}"
+echo "请保存此密码以备后用。"
+echo "访问 Matrix: https://${MATRIX_DOMAIN}"
+if [ "$ENABLE_ELEMENT" = "yes" ]; then
+    echo "访问 Element: https://${ELEMENT_DOMAIN}"
+fi
