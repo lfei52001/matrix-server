@@ -173,12 +173,42 @@ if [ ! -f "synapse_data/homeserver.yaml" ]; then
   exit 1
 fi
 
+# 新增步骤：删除 homeserver.yaml 中的 # vim:ft=yaml
+echo "删除 homeserver.yaml 中的 # vim:ft=yaml..."
+sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
+
+# 验证是否成功删除
+if grep -q "# vim:ft=yaml" synapse_data/homeserver.yaml; then
+  echo "错误：无法删除 homeserver.yaml 中的 # vim:ft=yaml！"
+  exit 1
+fi
+
 # 6. 配置 PostgreSQL 数据库
 echo "配置 PostgreSQL 数据库..."
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 
-# 7. 可选：配置邮箱验证
+# 7. 启用注册并配置日志，使用 tee -a 确保写入
+echo "启用注册并配置日志..."
+tee -a synapse_data/homeserver.yaml << EOF
+enable_registration: true
+logging:
+  handlers:
+    console:
+      level: DEBUG
+EOF
+
+# 验证是否成功写入
+if ! grep -q "enable_registration: true" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 enable_registration 配置写入 homeserver.yaml！"
+  exit 1
+fi
+if ! grep -q "logging:" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 logging 配置写入 homeserver.yaml！"
+  exit 1
+fi
+
+# 8. 可选：配置邮箱验证
 if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
     echo "配置邮箱验证..."
     tee -a synapse_data/homeserver.yaml << EOF
@@ -196,7 +226,7 @@ email:
 EOF
 fi
 
-# 8. 可选：配置第三方登录（Google/GitHub）
+# 9. 可选：配置第三方登录（Google/GitHub）
 if [ "$ENABLE_OIDC" = "yes" ]; then
     echo "配置第三方登录（Google/GitHub）..."
     tee -a synapse_data/homeserver.yaml << EOF
@@ -230,26 +260,6 @@ oidc_providers:
         localpart_template: "{{ user.login }}"
         display_name_template: "{{ user.name }}"
 EOF
-fi
-
-# 9. 启用注册并配置日志，使用 tee -a 确保写入
-echo "启用注册并配置日志..."
-tee -a synapse_data/homeserver.yaml << EOF
-enable_registration: true
-logging:
-  handlers:
-    console:
-      level: DEBUG
-EOF
-
-# 验证是否成功写入
-if ! grep -q "enable_registration: true" synapse_data/homeserver.yaml; then
-  echo "错误：无法将 enable_registration 配置写入 homeserver.yaml！"
-  exit 1
-fi
-if ! grep -q "logging:" synapse_data/homeserver.yaml; then
-  echo "错误：无法将 logging 配置写入 homeserver.yaml！"
-  exit 1
 fi
 
 # 10. 启动 Matrix 服务
@@ -330,7 +340,7 @@ services:
     image: vectorim/element-web:v1.8.0
     container_name: element
     volumes:
-      - ./config.${ELEMENT_DOMAIN}.json:/app/config.${ELEMENT_DOMAIN}.json
+      - ./config.element.json:/app/config.element.json
     environment:
       - VIRTUAL_HOST=${ELEMENT_DOMAIN}
       - VIRTUAL_PORT=80
@@ -346,7 +356,7 @@ networks:
     external: true
 EOF
 
-    cat > config.${ELEMENT_DOMAIN}.json << EOF
+    cat > config.element.json << EOF
 {
   "default_server_config": {
     "m.homeserver": {
