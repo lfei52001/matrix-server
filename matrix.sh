@@ -173,8 +173,6 @@ if [ ! -f "synapse_data/homeserver.yaml" ]; then
   exit 1
 fi
 
-# 新增步骤：删除 homeserver.yaml 中的 # vim:ft=yaml
-echo "删除 homeserver.yaml 中的 # vim:ft=yaml..."
 sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
 
 # 验证是否成功删除
