@@ -340,7 +340,7 @@ services:
     image: vectorim/element-web:v1.8.0
     container_name: element
     volumes:
-      - ./config.element.json:/app/config.element.json
+      - ./config.${ELEMENT_DOMAIN}.json:/app/config.${ELEMENT_DOMAIN}.json
     environment:
       - VIRTUAL_HOST=${ELEMENT_DOMAIN}
       - VIRTUAL_PORT=80
@@ -356,7 +356,7 @@ networks:
     external: true
 EOF
 
-    cat > config.element.json << EOF
+    cat > config.${ELEMENT_DOMAIN}.json << EOF
 {
   "default_server_config": {
     "m.homeserver": {
