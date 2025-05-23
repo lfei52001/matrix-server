@@ -1,12 +1,15 @@
 #!/bin/bash
 
+# 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
   echo "错误：请以 root 权限运行此脚本（使用 sudo 或 root 用户）"
   exit 1
 fi
 
+# 在任何错误时退出
 set -e
 
+# 交互式输入 Matrix 服务器域名和 SSL 证书邮箱
 echo "请输入 Matrix 服务器域名（例如 matrix.example.com）："
 read -r MATRIX_DOMAIN
 if [ -z "$MATRIX_DOMAIN" ]; then
@@ -21,10 +24,12 @@ if [ -z "$EMAIL_ADDRESS" ]; then
   exit 1
 fi
 
+# 交互式输入是否启用邮箱验证
 echo "是否启用邮箱验证？(yes/no)"
 read -r ENABLE_EMAIL_VERIFICATION
 ENABLE_EMAIL_VERIFICATION=$(echo "$ENABLE_EMAIL_VERIFICATION" | tr '[:upper:]' '[:lower:]')
 
+# 如果启用邮箱验证，输入 SMTP 邮箱和密码
 if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
   echo "请输入 SMTP 邮箱地址（用于邮箱验证，例如 your-email@gmail.com）："
   read -r SMTP_USER
@@ -41,10 +46,12 @@ if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
   fi
 fi
 
+# 交互式输入是否启用第三方登录
 echo "是否启用第三方登录（Google/GitHub）？(yes/no)"
 read -r ENABLE_OIDC
 ENABLE_OIDC=$(echo "$ENABLE_OIDC" | tr '[:upper:]' '[:lower:]')
 
+# 如果启用第三方登录，输入 Google 和 GitHub 的 client_id 和 client_secret
 if [ "$ENABLE_OIDC" = "yes" ]; then
   echo "请输入 Google OIDC client_id："
   read -r GOOGLE_CLIENT_ID
@@ -75,10 +82,12 @@ if [ "$ENABLE_OIDC" = "yes" ]; then
   fi
 fi
 
+# 交互式输入是否部署 Element Web 客户端
 echo "是否部署 Element Web 客户端？(yes/no)"
 read -r ENABLE_ELEMENT
 ENABLE_ELEMENT=$(echo "$ENABLE_ELEMENT" | tr '[:upper:]' '[:lower:]')
 
+# 如果部署 Element Web 客户端，输入 Element 域名
 if [ "$ENABLE_ELEMENT" = "yes" ]; then
   echo "请输入 Element Web 客户端域名（例如 element.example.com）："
   read -r ELEMENT_DOMAIN
@@ -88,21 +97,30 @@ if [ "$ENABLE_ELEMENT" = "yes" ]; then
   fi
 fi
 
+# 生成随机 PostgreSQL 密码
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 
 echo "开始安装 Matrix Synapse 服务器..."
 
+# 1. 安装 Docker
+echo "安装 Docker..."
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 rm get-docker.sh
 
+# 安装 Docker Compose
+echo "安装 Docker Compose..."
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
+# 2. 创建 Matrix 网络和目录
+echo "创建 Matrix 网络和目录..."
 docker network create matrix_network
 mkdir -p /root/matrix
 cd /root/matrix
 
+# 3. 创建 docker-compose.yml
+echo "创建 docker-compose.yml..."
 cat > docker-compose.yml << EOF
 services:
   postgres:
@@ -145,14 +163,32 @@ networks:
     name: matrix_network
 EOF
 
+# 4. 生成 Synapse 配置文件
+echo "生成 Synapse 配置文件..."
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
+
+# 5. 检查 homeserver.yaml 是否存在
+if [ ! -f "synapse_data/homeserver.yaml" ]; then
+  echo "错误：homeserver.yaml 文件未找到，请检查 Synapse 配置生成步骤！"
+  exit 1
+fi
 
 sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
 
+# 验证是否成功删除
+if grep -q "# vim:ft=yaml" synapse_data/homeserver.yaml; then
+  echo "错误：无法删除 homeserver.yaml 中的 # vim:ft=yaml！"
+  exit 1
+fi
+
+# 6. 配置 PostgreSQL 数据库
+echo "配置 PostgreSQL 数据库..."
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 
-cat > synapse_data/homeserver.yaml << EOF
+# 7. 启用注册并配置日志，使用 tee -a 确保写入
+echo "启用注册并配置日志..."
+tee -a synapse_data/homeserver.yaml << EOF
 enable_registration: true
 logging:
   handlers:
@@ -160,8 +196,20 @@ logging:
       level: DEBUG
 EOF
 
-if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then    
-    cat > synapse_data/homeserver.yaml << EOF
+# 验证是否成功写入
+if ! grep -q "enable_registration: true" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 enable_registration 配置写入 homeserver.yaml！"
+  exit 1
+fi
+if ! grep -q "logging:" synapse_data/homeserver.yaml; then
+  echo "错误：无法将 logging 配置写入 homeserver.yaml！"
+  exit 1
+fi
+
+# 8. 可选：配置邮箱验证
+if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
+    echo "配置邮箱验证..."
+    tee -a synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
   - email
 email:
@@ -176,8 +224,10 @@ email:
 EOF
 fi
 
-if [ "$ENABLE_OIDC" = "yes" ]; then  
-    cat > synapse_data/homeserver.yaml << EOF
+# 9. 可选：配置第三方登录（Google/GitHub）
+if [ "$ENABLE_OIDC" = "yes" ]; then
+    echo "配置第三方登录（Google/GitHub）..."
+    tee -a synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
     idp_name: Google
@@ -210,9 +260,74 @@ oidc_providers:
 EOF
 fi
 
+# 10. 启动 Matrix 服务
 echo "启动 Matrix 服务..."
 docker compose up -d
 
+# 11. 部署 Nginx
+echo "部署 Nginx..."
+mkdir -p /root/nginx
+cd /root/nginx
+cat > docker-compose.yml << EOF
+services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - vhost:/etc/nginx/vhost.d
+      - conf:/etc/nginx/conf.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    environment:
+      - TRUST_DOWNSTREAM_PROXY=false
+    networks:
+      - matrix_network
+    restart: unless-stopped
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-proxy-acme
+    environment:
+      - DEFAULT_EMAIL=${EMAIL_ADDRESS}
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - matrix_network
+    restart: unless-stopped
+networks:
+  matrix_network:
+    name: matrix_network
+    external: true
+volumes:
+  vhost:
+  conf:
+  html:
+  certs:
+  acme:
+EOF
+
+# 12. 创建 Nginx 自定义配置
+echo "创建 Nginx 自定义配置..."
+mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
+cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
+client_max_body_size 50m;
+location /.well-known/matrix/server {
+    return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
+}
+EOF
+
+# 13. 启动 Nginx 服务
+echo "启动 Nginx 服务..."
+docker compose up -d
+
+# 14. 可选：部署 Element Web 客户端
 if [ "$ENABLE_ELEMENT" = "yes" ]; then
     echo "部署 Element Web 客户端..."
     mkdir -p /root/element
@@ -268,66 +383,9 @@ EOF
     docker compose up -d
 fi
 
-echo "部署 Nginx..."
-mkdir -p /root/nginx
-cd /root/nginx
-cat > docker-compose.yml << EOF
-services:
-  nginx-proxy:
-    image: nginxproxy/nginx-proxy
-    container_name: nginx-proxy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - vhost:/etc/nginx/vhost.d
-      - conf:/etc/nginx/conf.d
-      - html:/usr/share/nginx/html
-      - certs:/etc/nginx/certs:ro
-      - /var/run/docker.sock:/tmp/docker.sock:ro
-    environment:
-      - TRUST_DOWNSTREAM_PROXY=false
-    networks:
-      - matrix_network
-    restart: unless-stopped
-  acme-companion:
-    image: nginxproxy/acme-companion
-    container_name: nginx-proxy-acme
-    environment:
-      - DEFAULT_EMAIL=${EMAIL_ADDRESS}
-    volumes_from:
-      - nginx-proxy
-    volumes:
-      - certs:/etc/nginx/certs:rw
-      - acme:/etc/acme.sh
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - matrix_network
-    restart: unless-stopped
-networks:
-  matrix_network:
-    name: matrix_network
-    external: true
-volumes:
-  vhost:
-  conf:
-  html:
-  certs:
-  acme:
-EOF
-docker compose up -d
-
-cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
-client_max_body_size 50m;
-location /.well-known/matrix/server {
-    return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
-}
-EOF
-
-docker compose down
-docker compose up -d
-
 echo "Matrix Synapse 服务器安装完成！"
+echo "PostgreSQL 密码: ${POSTGRES_PASSWORD}"
+echo "请保存此密码以备后用。"
 echo "访问 Matrix: https://${MATRIX_DOMAIN}"
 if [ "$ENABLE_ELEMENT" = "yes" ]; then
     echo "访问 Element: https://${ELEMENT_DOMAIN}"
