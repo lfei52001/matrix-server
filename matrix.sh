@@ -152,7 +152,7 @@ sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 
-tee -a synapse_data/homeserver.yaml << EOF
+cat > synapse_data/homeserver.yaml << EOF
 enable_registration: true
 logging:
   handlers:
@@ -161,7 +161,7 @@ logging:
 EOF
 
 if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then    
-    tee -a synapse_data/homeserver.yaml << EOF
+    cat > synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
   - email
 email:
@@ -177,7 +177,7 @@ EOF
 fi
 
 if [ "$ENABLE_OIDC" = "yes" ]; then  
-    tee -a synapse_data/homeserver.yaml << EOF
+    cat > synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
     idp_name: Google
@@ -211,64 +211,6 @@ EOF
 fi
 
 echo "启动 Matrix 服务..."
-docker compose up -d
-
-echo "部署 Nginx..."
-mkdir -p /root/nginx
-cd /root/nginx
-cat > docker-compose.yml << EOF
-services:
-  nginx-proxy:
-    image: nginxproxy/nginx-proxy
-    container_name: nginx-proxy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - vhost:/etc/nginx/vhost.d
-      - conf:/etc/nginx/conf.d
-      - html:/usr/share/nginx/html
-      - certs:/etc/nginx/certs:ro
-      - /var/run/docker.sock:/tmp/docker.sock:ro
-    environment:
-      - TRUST_DOWNSTREAM_PROXY=false
-    networks:
-      - matrix_network
-    restart: unless-stopped
-  acme-companion:
-    image: nginxproxy/acme-companion
-    container_name: nginx-proxy-acme
-    environment:
-      - DEFAULT_EMAIL=${EMAIL_ADDRESS}
-    volumes_from:
-      - nginx-proxy
-    volumes:
-      - certs:/etc/nginx/certs:rw
-      - acme:/etc/acme.sh
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - matrix_network
-    restart: unless-stopped
-networks:
-  matrix_network:
-    name: matrix_network
-    external: true
-volumes:
-  vhost:
-  conf:
-  html:
-  certs:
-  acme:
-EOF
-
-mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
-cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
-client_max_body_size 50m;
-location /.well-known/matrix/server {
-    return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
-}
-EOF
-
 docker compose up -d
 
 if [ "$ENABLE_ELEMENT" = "yes" ]; then
@@ -325,6 +267,65 @@ EOF
 
     docker compose up -d
 fi
+
+echo "部署 Nginx..."
+mkdir -p /root/nginx
+cd /root/nginx
+cat > docker-compose.yml << EOF
+services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - vhost:/etc/nginx/vhost.d
+      - conf:/etc/nginx/conf.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    environment:
+      - TRUST_DOWNSTREAM_PROXY=false
+    networks:
+      - matrix_network
+    restart: unless-stopped
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-proxy-acme
+    environment:
+      - DEFAULT_EMAIL=${EMAIL_ADDRESS}
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - matrix_network
+    restart: unless-stopped
+networks:
+  matrix_network:
+    name: matrix_network
+    external: true
+volumes:
+  vhost:
+  conf:
+  html:
+  certs:
+  acme:
+EOF
+docker compose up -d
+
+cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
+client_max_body_size 50m;
+location /.well-known/matrix/server {
+    return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
+}
+EOF
+
+docker compose down
+docker compose up -d
 
 echo "Matrix Synapse 服务器安装完成！"
 echo "访问 Matrix: https://${MATRIX_DOMAIN}"
