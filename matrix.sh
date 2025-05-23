@@ -136,7 +136,7 @@ networks:
     name: matrix_network
 EOF
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
-# 5. 检查 homeserver.yaml 是否存在
+# 检查 homeserver.yaml 是否存在
 if [ ! -f "synapse_data/homeserver.yaml" ]; then
   echo "错误：homeserver.yaml 文件未找到，请检查 Synapse 配置生成步骤！"
   exit 1
@@ -156,7 +156,7 @@ logging:
     console:
       level: DEBUG
 EOF
-# 8. 可选：配置邮箱验证
+# 配置邮箱验证
 if [ "$ENABLE_EMAIL_VERIFICATION" = "y" ]; then
     cat >> synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
@@ -172,7 +172,7 @@ email:
   app_name: Matrix
 EOF
 fi
-# 9. 可选：配置第三方登录（Google/GitHub）
+# 配置第三方登录（Google/GitHub）
 if [ "$ENABLE_OIDC" = "y" ]; then  
     cat >> synapse_data/homeserver.yaml << EOF
 oidc_providers:
@@ -207,7 +207,7 @@ oidc_providers:
 EOF
 fi
 docker compose up -d
-# 11. 部署 Nginx
+# 部署 Nginx
 echo "部署 Nginx..."
 mkdir -p /root/nginx
 cd /root/nginx
@@ -263,9 +263,9 @@ location /.well-known/matrix/server {
 }
 EOF
 docker compose up -d
-# 14. 可选：部署 Element Web 客户端
+# 部署Element-Web客户端
 if [ "$ENABLE_ELEMENT" = "y" ]; then
-    echo "部署 Element Web 客户端..."
+    echo "部署Element-Web客户端..."
     mkdir -p /root/element
     cd /root/element
     cat > docker-compose.yml << EOF
@@ -316,8 +316,8 @@ EOF
 EOF
     docker compose up -d
 fi
-echo "Matrix Synapse 服务器安装完成！"
-echo "访问 Matrix: https://${MATRIX_DOMAIN}"
+echo "Matrix Synapse服务器安装完成！"
+echo "访问Matrix: https://${MATRIX_DOMAIN}"
 if [ "$ENABLE_ELEMENT" = "y" ]; then
-    echo "访问 Element: https://${ELEMENT_DOMAIN}"
+    echo "访问Element: https://${ELEMENT_DOMAIN}"
 fi
