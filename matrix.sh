@@ -92,12 +92,10 @@ POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 
 echo "开始安装 Matrix Synapse 服务器..."
 
-echo "安装 Docker..."
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 rm get-docker.sh
 
-echo "安装 Docker Compose..."
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
