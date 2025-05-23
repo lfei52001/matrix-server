@@ -101,12 +101,10 @@ echo "安装 Docker Compose..."
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
-echo "创建 Matrix 网络和目录..."
 docker network create matrix_network
 mkdir -p /root/matrix
 cd /root/matrix
 
-echo "创建 docker-compose.yml..."
 cat > docker-compose.yml << EOF
 services:
   postgres:
@@ -149,16 +147,13 @@ networks:
     name: matrix_network
 EOF
 
-echo "生成 Synapse 配置文件..."
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
 
 sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
 
-echo "配置 PostgreSQL 数据库..."
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: ${POSTGRES_PASSWORD}\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 
-echo "启用注册并配置日志..."
 tee -a synapse_data/homeserver.yaml << EOF
 enable_registration: true
 logging:
@@ -167,8 +162,7 @@ logging:
       level: DEBUG
 EOF
 
-if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then
-    echo "配置邮箱验证..."
+if [ "$ENABLE_EMAIL_VERIFICATION" = "yes" ]; then    
     tee -a synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
   - email
@@ -184,8 +178,7 @@ email:
 EOF
 fi
 
-if [ "$ENABLE_OIDC" = "yes" ]; then
-    echo "配置第三方登录（Google/GitHub）..."
+if [ "$ENABLE_OIDC" = "yes" ]; then  
     tee -a synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
@@ -287,7 +280,7 @@ if [ "$ENABLE_ELEMENT" = "yes" ]; then
     cat > docker-compose.yml << EOF
 services:
   element:
-    image: vectorim/element-web:v1.8.0
+    image: vectorim/element-web:v1.10.0
     container_name: element
     volumes:
       - ./config.${ELEMENT_DOMAIN}.json:/app/config.${ELEMENT_DOMAIN}.json
