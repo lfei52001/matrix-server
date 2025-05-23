@@ -173,8 +173,7 @@ email:
 EOF
 fi
 # 9. 可选：配置第三方登录（Google/GitHub）
-if [ "$ENABLE_OIDC" = "y" ]; then
-    echo "配置第三方登录（Google/GitHub）..."
+if [ "$ENABLE_OIDC" = "y" ]; then  
     cat >> synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
@@ -318,8 +317,6 @@ EOF
     docker compose up -d
 fi
 echo "Matrix Synapse 服务器安装完成！"
-echo "PostgreSQL 密码: ${POSTGRES_PASSWORD}"
-echo "请保存此密码以备后用。"
 echo "访问 Matrix: https://${MATRIX_DOMAIN}"
 if [ "$ENABLE_ELEMENT" = "y" ]; then
     echo "访问 Element: https://${ELEMENT_DOMAIN}"
