@@ -240,7 +240,7 @@ fi
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   # 创建管理员用户
   docker compose up -d synapse
-  docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008
+  docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://synapse:8008
 fi
 docker compose up -d
 echo "部署 Nginx..."
