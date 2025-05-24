@@ -76,6 +76,30 @@ if [ "$ENABLE_ELEMENT" = "y" ]; then
     exit 1
   fi
 fi
+echo "是否部署Synapse-Admin管理界面？(y/n，默认 n)"
+read -r ENABLE_SYNAPSE_ADMIN
+ENABLE_SYNAPSE_ADMIN=$(echo "${ENABLE_SYNAPSE_ADMIN:-n}" | tr '[:upper:]' '[:lower:]')
+# 如果部署 Synapse-Admin，输入管理员账号和密码
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+  echo "请输入 Synapse-Admin 域名（例如 admin.example.com）："
+  read -r ADMIN_DOMAIN
+  if [ -z "$ADMIN_DOMAIN" ]; then
+    echo "错误：Synapse-Admin 域名不能为空！"
+    exit 1
+  fi
+  echo "请输入管理员账号（例如 admin）："
+  read -r ADMIN_USERNAME
+  if [ -z "$ADMIN_USERNAME" ]; then
+    echo "错误：管理员账号不能为空！"
+    exit 1
+  fi
+  echo "请输入管理员密码："
+  read -r ADMIN_PASSWORD
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    echo "错误：管理员密码不能为空！"
+    exit 1
+  fi
+fi
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 echo "开始部署Matrix Synapse服务器..."
 echo "安装 Docker..."
@@ -120,6 +144,23 @@ services:
     networks:
       - matrix_network
     restart: unless-stopped
+EOF
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+  cat >> docker-compose.yml << EOF
+  synapse-admin:
+    image: awesometechnologies/synapse-admin:latest
+    container_name: synapse-admin
+    environment:
+      - VIRTUAL_HOST=${ADMIN_DOMAIN}
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=${ADMIN_DOMAIN}
+      - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
+    networks:
+      - matrix_network
+    restart: unless-stopped
+EOF
+fi
+cat >> docker-compose.yml << EOF
 volumes:
   postgres_data:
   synapse_data:
@@ -196,6 +237,11 @@ oidc_providers:
         display_name_template: "{{ user.name }}"
 EOF
 fi
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+  # 创建管理员用户
+  docker compose up -d synapse
+  docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008
+fi
 docker compose up -d
 echo "部署 Nginx..."
 mkdir -p /root/nginx
@@ -251,6 +297,11 @@ location /.well-known/matrix/server {
     return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
 }
 EOF
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+  cat > /var/lib/docker/volumes/nginx_vhost/_data/${ADMIN_DOMAIN} << EOF
+client_max_body_size 10m;
+EOF
+fi
 docker compose up -d
 if [ "$ENABLE_ELEMENT" = "y" ]; then
     echo "部署Element-Web客户端..."
@@ -308,4 +359,9 @@ echo "Matrix Synapse服务器安装完成！"
 echo "访问Matrix: https://${MATRIX_DOMAIN}"
 if [ "$ENABLE_ELEMENT" = "y" ]; then
     echo "访问Element: https://${ELEMENT_DOMAIN}"
+fi
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+    echo "访问Synapse-Admin: https://${ADMIN_DOMAIN}"
+    echo "管理员账号: ${ADMIN_USERNAME}"
+    echo "管理员密码: ${ADMIN_PASSWORD}"
 fi
