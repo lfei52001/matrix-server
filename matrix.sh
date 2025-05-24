@@ -4,9 +4,7 @@ if [ "$EUID" -ne 0 ]; then
   echo "错误：请以 root 权限运行此脚本（使用 sudo 或 root 用户）"
   exit 1
 fi
-# 在任何错误时退出
 set -e
-# 交互式输入 Matrix 服务器域名和 SSL 证书邮箱
 echo "请输入 Matrix 服务器域名（例如 matrix.example.com）："
 read -r MATRIX_DOMAIN
 if [ -z "$MATRIX_DOMAIN" ]; then
@@ -19,7 +17,6 @@ if [ -z "$EMAIL_ADDRESS" ]; then
   echo "错误：邮箱地址不能为空！"
   exit 1
 fi
-# 交互式输入是否启用邮箱验证
 echo "是否启用邮箱验证？(y/n，默认 y)"
 read -r ENABLE_EMAIL_VERIFICATION
 ENABLE_EMAIL_VERIFICATION=$(echo "${ENABLE_EMAIL_VERIFICATION:-y}" | tr '[:upper:]' '[:lower:]')
@@ -38,11 +35,9 @@ if [ "$ENABLE_EMAIL_VERIFICATION" = "y" ]; then
     exit 1
   fi
 fi
-# 交互式输入是否启用第三方登录
 echo "是否启用第三方登录（Google/GitHub）？(y/n，默认 y)"
 read -r ENABLE_OIDC
 ENABLE_OIDC=$(echo "${ENABLE_OIDC:-y}" | tr '[:upper:]' '[:lower:]')
-# 如果启用第三方登录，输入 Google 和 GitHub 的 client_id 和 client_secret
 if [ "$ENABLE_OIDC" = "y" ]; then
   echo "请输入 Google OIDC client_id："
   read -r GOOGLE_CLIENT_ID
@@ -69,7 +64,6 @@ if [ "$ENABLE_OIDC" = "y" ]; then
     exit 1
   fi
 fi
-# 交互式输入是否部署 Element Web 客户端
 echo "是否部署Element-Web客户端？(y/n，默认 y)"
 read -r ENABLE_ELEMENT
 ENABLE_ELEMENT=$(echo "${ENABLE_ELEMENT:-y}" | tr '[:upper:]' '[:lower:]')
@@ -82,7 +76,6 @@ if [ "$ENABLE_ELEMENT" = "y" ]; then
     exit 1
   fi
 fi
-# 生成随机 PostgreSQL 密码
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 echo "开始部署Matrix Synapse服务器..."
 echo "安装 Docker..."
@@ -136,13 +129,11 @@ networks:
     name: matrix_network
 EOF
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
-# 检查 homeserver.yaml 是否存在
 if [ ! -f "synapse_data/homeserver.yaml" ]; then
   echo "错误：homeserver.yaml 文件未找到，请检查 Synapse 配置生成步骤！"
   exit 1
 fi
 sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
-# 验证是否成功删除
 if grep -q "# vim:ft=yaml" synapse_data/homeserver.yaml; then
   echo "错误：无法删除 homeserver.yaml 中的 # vim:ft=yaml！"
   exit 1
@@ -156,7 +147,6 @@ logging:
     console:
       level: DEBUG
 EOF
-# 配置邮箱验证
 if [ "$ENABLE_EMAIL_VERIFICATION" = "y" ]; then
     cat >> synapse_data/homeserver.yaml << EOF
 registrations_require_3pid:
@@ -172,7 +162,6 @@ email:
   app_name: Matrix
 EOF
 fi
-# 配置第三方登录（Google/GitHub）
 if [ "$ENABLE_OIDC" = "y" ]; then  
     cat >> synapse_data/homeserver.yaml << EOF
 oidc_providers:
@@ -207,7 +196,6 @@ oidc_providers:
 EOF
 fi
 docker compose up -d
-# 部署 Nginx
 echo "部署 Nginx..."
 mkdir -p /root/nginx
 cd /root/nginx
@@ -263,7 +251,6 @@ location /.well-known/matrix/server {
 }
 EOF
 docker compose up -d
-# 部署Element-Web客户端
 if [ "$ENABLE_ELEMENT" = "y" ]; then
     echo "部署Element-Web客户端..."
     mkdir -p /root/element
