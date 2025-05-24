@@ -35,29 +35,29 @@ if [ "$ENABLE_EMAIL_VERIFICATION" = "y" ]; then
     exit 1
   fi
 fi
-echo "是否启用第三方登录（Google/GitHub）？(y/n，默认 y)"
+echo "是否开启单点登录（Google/GitHub）？(y/n，默认 y)"
 read -r ENABLE_OIDC
 ENABLE_OIDC=$(echo "${ENABLE_OIDC:-y}" | tr '[:upper:]' '[:lower:]')
 if [ "$ENABLE_OIDC" = "y" ]; then
-  echo "请输入 Google OIDC client_id："
+  echo "请输入 Google SSO client_id："
   read -r GOOGLE_CLIENT_ID
   if [ -z "$GOOGLE_CLIENT_ID" ]; then
     echo "错误：Google client_id 不能为空！"
     exit 1
   fi
-  echo "请输入 Google OIDC client_secret："
+  echo "请输入 Google SSO client_secret："
   read -r GOOGLE_CLIENT_SECRET
   if [ -z "$GOOGLE_CLIENT_SECRET" ]; then
     echo "错误：Google client_secret 不能为空！"
     exit 1
   fi
-  echo "请输入 GitHub OIDC client_id："
+  echo "请输入 GitHub SSO client_id："
   read -r GITHUB_CLIENT_ID
   if [ -z "$GITHUB_CLIENT_ID" ]; then
     echo "错误：GitHub client_id 不能为空！"
     exit 1
   fi
-  echo "请输入 GitHub OIDC client_secret："
+  echo "请输入 GitHub SSO client_secret："
   read -r GITHUB_CLIENT_SECRET
   if [ -z "$GITHUB_CLIENT_SECRET" ]; then
     echo "错误：GitHub client_secret 不能为空！"
