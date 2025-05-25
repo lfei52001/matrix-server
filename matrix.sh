@@ -262,18 +262,18 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
     docker compose logs synapse
     exit 1
   fi
- # 部署 Synapse-Admin
-  echo "部署 Synapse-Admin..."
-  mkdir -p /root/synapse-admin
-  cd /root/synapse-admin
-  touch config.json
-  cat > config.json << EOF
-  {
-    "homeServerUrl": "https://${MATRIX_DOMAIN}"
-  }
-  EOF
-  touch docker-compose.yml
-  cat > docker-compose.yml << EOF
+# 部署 Synapse-Admin
+echo "部署 Synapse-Admin..."
+mkdir -p /root/synapse-admin
+cd /root/synapse-admin
+touch config.json
+cat > config.json << EOF
+{
+  "homeServerUrl": "https://${MATRIX_DOMAIN}"
+}
+EOF
+touch docker-compose.yml
+cat > docker-compose.yml << EOF
 services:
   synapse-admin:
     image: awesometechnologies/synapse-admin:0.8.7
@@ -299,7 +299,7 @@ networks:
     name: matrix_network
     external: true
 EOF
-  docker compose up -d
+docker compose up -d
 fi
 echo "部署 Nginx..."
 mkdir -p /root/nginx
