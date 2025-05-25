@@ -276,7 +276,7 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   cat > docker-compose.yml << EOF
 services:
   synapse-admin:
-    image: awesometechnologies/synapse-admin:latest
+    image: awesometechnologies/synapse-admin:0.8.7
     container_name: synapse-admin
     environment:
       - VIRTUAL_HOST=${ADMIN_DOMAIN}
