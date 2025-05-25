@@ -262,10 +262,16 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
     docker compose logs synapse
     exit 1
   fi
-  # 部署 Synapse-Admin
+ # 部署 Synapse-Admin
   echo "部署 Synapse-Admin..."
   mkdir -p /root/synapse-admin
   cd /root/synapse-admin
+  touch config.json
+  cat > config.json << EOF
+  {
+    "homeServerUrl": "https://${MATRIX_DOMAIN}"
+  }
+  EOF
   touch docker-compose.yml
   cat > docker-compose.yml << EOF
 services:
@@ -278,9 +284,16 @@ services:
       - LETSENCRYPT_HOST=${ADMIN_DOMAIN}
       - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
       - REACT_APP_SERVER=https://${MATRIX_DOMAIN}
+    volumes:
+      - ./config.json:/app/config.json
     networks:
       - matrix_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "https://${MATRIX_DOMAIN}/_matrix/client/versions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 networks:
   matrix_network:
     name: matrix_network
