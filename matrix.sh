@@ -277,6 +277,7 @@ services:
       - VIRTUAL_PORT=80
       - LETSENCRYPT_HOST=${ADMIN_DOMAIN}
       - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
+      - REACT_APP_SERVER=https://${MATRIX_DOMAIN}
     networks:
       - matrix_network
     restart: unless-stopped
