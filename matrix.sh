@@ -269,14 +269,14 @@ cd /root/synapse-admin
 touch config.json
 cat > config.json << EOF
 {
-  "homeServerUrl": "https://${MATRIX_DOMAIN}"
+  "restrictBaseUrl": "https://${MATRIX_DOMAIN}"
 }
 EOF
 touch docker-compose.yml
 cat > docker-compose.yml << EOF
 services:
   synapse-admin:
-    image: awesometechnologies/synapse-admin:0.8.7
+    image: awesometechnologies/synapse-admin:0.10.4
     container_name: synapse-admin
     environment:
       - VIRTUAL_HOST=${ADMIN_DOMAIN}
