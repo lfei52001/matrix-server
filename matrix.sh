@@ -71,9 +71,9 @@ if [ "$ENABLE_ELEMENT" = "y" ]; then
     exit 1
   fi
 fi
-echo "是否部署Synapse-Admin管理界面？(y/n，默认 n)"
+echo "是否部署Synapse-Admin管理界面？(y/n，默认 y)"
 read -r ENABLE_SYNAPSE_ADMIN
-ENABLE_SYNAPSE_ADMIN=$(echo "${ENABLE_SYNAPSE_ADMIN:-n}" | tr '[:upper:]' '[:lower:]')
+ENABLE_SYNAPSE_ADMIN=$(echo "${ENABLE_SYNAPSE_ADMIN:-y}" | tr '[:upper:]' '[:lower:]')
 # 如果部署 Synapse-Admin，输入管理员账号和密码
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   echo "请输入 Synapse-Admin 域名（例如 admin.example.com）："
