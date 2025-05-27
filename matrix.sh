@@ -1,5 +1,4 @@
 #!/bin/bash
-# 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
   echo "错误：请以 root 权限运行此脚本（使用 sudo 或 root 用户）"
   exit 1
@@ -17,7 +16,6 @@ if [ -z "$EMAIL_ADDRESS" ]; then
   echo "错误：邮箱地址不能为空！"
   exit 1
 fi
-# 邮箱验证为必须开启，直接要求输入 SMTP 信息
 echo "请输入 SMTP 邮箱地址（用于邮箱验证，例如 your-email@gmail.com）："
 read -r SMTP_USER
 if [ -z "$SMTP_USER" ]; then
@@ -62,7 +60,6 @@ fi
 echo "是否部署Element-Web客户端？(y/n，默认 y)"
 read -r ENABLE_ELEMENT
 ENABLE_ELEMENT=$(echo "${ENABLE_ELEMENT:-y}" | tr '[:upper:]' '[:lower:]')
-# 如果部署 Element Web 客户端，输入 Element 域名
 if [ "$ENABLE_ELEMENT" = "y" ]; then
   echo "请输入Element-Web客户端域名（例如 element.example.com）："
   read -r ELEMENT_DOMAIN
@@ -74,7 +71,6 @@ fi
 echo "是否部署Synapse-Admin管理界面？(y/n，默认 y)"
 read -r ENABLE_SYNAPSE_ADMIN
 ENABLE_SYNAPSE_ADMIN=$(echo "${ENABLE_SYNAPSE_ADMIN:-y}" | tr '[:upper:]' '[:lower:]')
-# 如果部署 Synapse-Admin，输入管理员账号和密码
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   echo "请输入 Synapse-Admin 域名（例如 admin.example.com）："
   read -r ADMIN_DOMAIN
@@ -95,7 +91,6 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
     exit 1
   fi
 fi
-# 生成安全的 PostgreSQL 密码，并确保其不包含会导致 YAML 解析失败的特殊字符
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
 echo "开始部署Matrix Synapse服务器..."
 echo "安装 Docker..."
@@ -156,7 +151,6 @@ networks:
 EOF
 echo "启动 PostgreSQL 并验证其状态..."
 docker compose up -d postgres
-# 等待 PostgreSQL 就绪（最多 60 秒）
 for i in {1..60}; do
   if docker exec postgres pg_isready -U synapse_user -d synapse > /dev/null 2>&1; then
     echo "PostgreSQL 服务已就绪！"
@@ -165,7 +159,6 @@ for i in {1..60}; do
   echo "PostgreSQL 服务尚未就绪，等待 $i/60..."
   sleep 1
 done
-# 检查 PostgreSQL 是否成功启动
 if ! docker exec postgres pg_isready -U synapse_user -d synapse > /dev/null 2>&1; then
   echo "错误：无法连接到 PostgreSQL 服务，请检查日志！"
   docker compose logs postgres
@@ -181,7 +174,6 @@ if grep -q "# vim:ft=yaml" synapse_data/homeserver.yaml; then
   echo "错误：无法删除 homeserver.yaml 中的 # vim:ft=yaml！"
   exit 1
 fi
-# 使用 printf 对密码进行转义，确保特殊字符不会破坏 YAML 格式
 POSTGRES_PASSWORD_ESCAPED=$(printf '%s' "$POSTGRES_PASSWORD" | sed 's/[\\"]/\\&/g')
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: \"${POSTGRES_PASSWORD_ESCAPED}\"\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
@@ -240,7 +232,6 @@ fi
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   echo "启动 Synapse 服务并等待其完全可用..."
   docker compose up -d synapse
-  # 等待 Synapse 服务就绪（最多 60 秒）
   for i in {1..60}; do
     if docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
       echo "Synapse 服务已就绪！"
@@ -249,20 +240,17 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
     echo "Synapse 服务尚未就绪，等待 $i/60..."
     sleep 1
   done
-  # 检查是否成功连接到 Synapse
   if ! docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
     echo "错误：无法连接到 Synapse 服务（http://localhost:8008），请检查日志！"
     docker compose logs synapse
     exit 1
   fi
-  # 注册管理员用户
   echo "注册管理员用户 ${ADMIN_USERNAME}..."
   if ! docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008; then
     echo "错误：管理员用户注册失败，请检查 Synapse 日志！"
     docker compose logs synapse
     exit 1
   fi
-# 部署 Synapse-Admin
 echo "部署 Synapse-Admin..."
 mkdir -p /root/synapse-admin
 cd /root/synapse-admin
