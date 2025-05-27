@@ -131,7 +131,6 @@ services:
       LETSENCRYPT_HOST: "${MATRIX_DOMAIN}"
       SYNAPSE_SERVER_NAME: "${MATRIX_DOMAIN}"
       SYNAPSE_REPORT_STATS: "no"
-      CLIENT_MAX_BODY_SIZE: "500M"
     volumes:
       - ./synapse_data:/data
     ports:
@@ -310,6 +309,7 @@ services:
       - /var/run/docker.sock:/tmp/docker.sock:ro
     environment:
       - TRUST_DOWNSTREAM_PROXY=false
+      - CLIENT_MAX_BODY_SIZE=500M
     networks:
       - matrix_network
     restart: unless-stopped
