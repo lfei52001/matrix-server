@@ -131,7 +131,7 @@ services:
       LETSENCRYPT_HOST: "${MATRIX_DOMAIN}"
       SYNAPSE_SERVER_NAME: "${MATRIX_DOMAIN}"
       SYNAPSE_REPORT_STATS: "no"
-	  CLIENT_MAX_BODY_SIZE: "500M"
+      CLIENT_MAX_BODY_SIZE: "500M"
     volumes:
       - ./synapse_data:/data
     ports:
