@@ -131,6 +131,7 @@ services:
       LETSENCRYPT_HOST: "${MATRIX_DOMAIN}"
       SYNAPSE_SERVER_NAME: "${MATRIX_DOMAIN}"
       SYNAPSE_REPORT_STATS: "no"
+	  CLIENT_MAX_BODY_SIZE: "500M"
     volumes:
       - ./synapse_data:/data
     ports:
@@ -179,7 +180,7 @@ sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/ho
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: \"${POSTGRES_PASSWORD_ESCAPED}\"\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
 cat >> synapse_data/homeserver.yaml << EOF
 enable_registration: true
-max_upload_size: 1024M
+max_upload_size: 500M
 logging:
   handlers:
     console:
@@ -272,6 +273,7 @@ services:
       - LETSENCRYPT_HOST=${ADMIN_DOMAIN}
       - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
       - REACT_APP_SERVER=https://${MATRIX_DOMAIN}
+	    - CLIENT_MAX_BODY_SIZE=10M
     volumes:
       - ./config.json:/app/config.json
     networks:
@@ -338,16 +340,10 @@ volumes:
 EOF
 mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
 cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
-client_max_body_size 1024M;
 location /.well-known/matrix/server {
     return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
 }
 EOF
-if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
-  cat > /var/lib/docker/volumes/nginx_vhost/_data/${ADMIN_DOMAIN} << EOF
-client_max_body_size 10M;
-EOF
-fi
 docker compose up -d
 if [ "$ENABLE_ELEMENT" = "y" ]; then
     echo "部署Element-Web客户端..."
