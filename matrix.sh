@@ -272,7 +272,6 @@ services:
       - LETSENCRYPT_HOST=${ADMIN_DOMAIN}
       - LETSENCRYPT_EMAIL=${EMAIL_ADDRESS}
       - REACT_APP_SERVER=https://${MATRIX_DOMAIN}
-	    - CLIENT_MAX_BODY_SIZE=10M
     volumes:
       - ./config.json:/app/config.json
     networks:
