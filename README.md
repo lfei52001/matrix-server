@@ -7,6 +7,7 @@
 二.注意事项：                                                                                                                                  
 1.nginx反代上传文件最大限制为:50M，这个可以修改.                                                                                             
 2.VPS机器内存最好为2G及以上.
+3.synapse-admin管理界面可选择搭建，不是必须搭建
 
 
 ![image](https://github.com/user-attachments/assets/0ca3f312-5102-4752-8cd1-cbf91497298f)
