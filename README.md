@@ -7,7 +7,10 @@
 二.注意事项：                                                                                                                                  
 1.nginx反代上传文件最大限制为:50M，这个可以修改.                                                                                             
 2.VPS机器内存最好为2G及以上.
+
+
 ![image](https://github.com/user-attachments/assets/0ca3f312-5102-4752-8cd1-cbf91497298f)
+
 
 ![image](https://github.com/user-attachments/assets/552b0c8f-8840-4ad9-bb73-234185bfe57f)
 
