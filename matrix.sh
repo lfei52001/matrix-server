@@ -1,34 +1,42 @@
 #!/bin/bash
+
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
   echo "错误：请以 root 权限运行此脚本（使用 sudo 或 root 用户）"
   exit 1
 fi
+
 set -e
+
+# 收集用户输入
 echo "请输入 Matrix 服务器域名（例如 matrix.example.com）："
 read -r MATRIX_DOMAIN
 if [ -z "$MATRIX_DOMAIN" ]; then
   echo "错误：Matrix 服务器域名不能为空！"
   exit 1
 fi
+
 echo "请输入用于申请SSL证书的邮箱地址："
 read -r EMAIL_ADDRESS
 if [ -z "$EMAIL_ADDRESS" ]; then
   echo "错误：邮箱地址不能为空！"
   exit 1
 fi
+
 echo "请输入 SMTP 邮箱地址（用于邮箱验证，例如 your-email@gmail.com）："
 read -r SMTP_USER
 if [ -z "$SMTP_USER" ]; then
   echo "错误：SMTP 邮箱地址不能为空！"
   exit 1
 fi
+
 echo "请输入 SMTP 邮箱的应用专用密码（Google App Password）："
 read -r SMTP_PASS
 if [ -z "$SMTP_PASS" ]; then
   echo "错误：SMTP 应用专用密码不能为空！"
   exit 1
 fi
+
 echo "是否开启单点登录（Google/GitHub）？(y/n，默认 y)"
 read -r ENABLE_OIDC
 ENABLE_OIDC=$(echo "${ENABLE_OIDC:-y}" | tr '[:upper:]' '[:lower:]')
@@ -58,9 +66,11 @@ if [ "$ENABLE_OIDC" = "y" ]; then
     exit 1
   fi
 fi
+
 echo "是否部署Element-Web客户端？(y/n，默认 y)"
 read -r ENABLE_ELEMENT
 ENABLE_ELEMENT=$(echo "${ENABLE_ELEMENT:-y}" | tr '[:upper:]' '[:lower:]')
+
 if [ "$ENABLE_ELEMENT" = "y" ]; then
   echo "请输入Element-Web客户端域名（例如 element.example.com）："
   read -r ELEMENT_DOMAIN
@@ -69,6 +79,7 @@ if [ "$ENABLE_ELEMENT" = "y" ]; then
     exit 1
   fi
 fi
+
 echo "是否部署Synapse-Admin管理界面？(y/n，默认 y)"
 read -r ENABLE_SYNAPSE_ADMIN
 ENABLE_SYNAPSE_ADMIN=$(echo "${ENABLE_SYNAPSE_ADMIN:-y}" | tr '[:upper:]' '[:lower:]')
@@ -92,17 +103,50 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
     exit 1
   fi
 fi
+
+echo "是否部署Maubot机器人？(y/n，默认 n)"
+read -r ENABLE_MAUBOT
+ENABLE_MAUBOT=$(echo "${ENABLE_MAUBOT:-n}" | tr '[:upper:]' '[:lower:]')
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  echo "请输入 Maubot 管理界面域名（例如 maubot.example.com）："
+  read -r MAUBOT_DOMAIN
+  if [ -z "$MAUBOT_DOMAIN" ]; then
+    echo "错误：Maubot 域名不能为空！"
+    exit 1
+  fi
+  echo "请输入 Maubot 机器人账号（例如 maubot）："
+  read -r MAUBOT_USERNAME
+  if [ -z "$MAUBOT_USERNAME" ]; then
+    echo "错误：Maubot 机器人账号不能为空！"
+    exit 1
+  fi
+  echo "请输入 Maubot 机器人密码："
+  read -r MAUBOT_PASSWORD
+  if [ -z "$MAUBOT_PASSWORD" ]; then
+    echo "错误：Maubot 机器人密码不能为空！"
+    exit 1
+  fi
+fi
+
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+
 echo "开始部署Matrix Synapse服务器..."
+
+# 安装 Docker
 echo "安装 Docker..."
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 rm get-docker.sh
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+
+# 创建 Docker 网络
 docker network create matrix_network
+
+# 部署 Synapse 和 PostgreSQL
 mkdir -p /root/matrix
 cd /root/matrix
+
 cat > docker-compose.yml << EOF
 services:
   postgres:
@@ -142,14 +186,48 @@ services:
     networks:
       - matrix_network
     restart: unless-stopped
+EOF
+
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  cat >> docker-compose.yml << EOF
+  maubot:
+    image: dock.mau.dev/maubot/maubot:latest
+    container_name: maubot
+    environment:
+      VIRTUAL_HOST: "${MAUBOT_DOMAIN}"
+      VIRTUAL_PORT: 29316
+      LETSENCRYPT_HOST: "${MAUBOT_DOMAIN}"
+      LETSENCRYPT_EMAIL: "${EMAIL_ADDRESS}"
+    volumes:
+      - ./maubot_data:/data
+    ports:
+      - "29316:29316"
+    networks:
+      - matrix_network
+    restart: unless-stopped
+EOF
+fi
+
+cat >> docker-compose.yml << EOF
 volumes:
   postgres_data:
   synapse_data:
+EOF
+
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  cat >> docker-compose.yml << EOF
+  maubot_data:
+EOF
+fi
+
+cat >> docker-compose.yml << EOF
 networks:
   matrix_network:
     external: true
     name: matrix_network
 EOF
+
+# 启动 PostgreSQL 并验证
 echo "启动 PostgreSQL 并验证其状态..."
 docker compose up -d postgres
 for i in {1..60}; do
@@ -165,19 +243,25 @@ if ! docker exec postgres pg_isready -U synapse_user -d synapse > /dev/null 2>&1
   docker compose logs postgres
   exit 1
 fi
+
+# 生成 Synapse 配置文件
 docker compose run --rm -e SYNAPSE_SERVER_NAME=${MATRIX_DOMAIN} -e SYNAPSE_REPORT_STATS=no synapse generate
 if [ ! -f "synapse_data/homeserver.yaml" ]; then
   echo "错误：homeserver.yaml 文件未找到，请检查 Synapse 配置生成步骤！"
   exit 1
 fi
+
+# 修改 Synapse 配置
 sed -i '/# vim:ft=yaml/d' synapse_data/homeserver.yaml
 if grep -q "# vim:ft=yaml" synapse_data/homeserver.yaml; then
   echo "错误：无法删除 homeserver.yaml 中的 # vim:ft=yaml！"
   exit 1
 fi
+
 POSTGRES_PASSWORD_ESCAPED=$(printf '%s' "$POSTGRES_PASSWORD" | sed 's/[\\"]/\\&/g')
 sed -i "/database:/,/database:/ s|name: sqlite3|name: psycopg2|" synapse_data/homeserver.yaml
 sed -i "/database:/,/database:/ s|database: /data/homeserver.db|user: synapse_user\n    password: \"${POSTGRES_PASSWORD_ESCAPED}\"\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10|" synapse_data/homeserver.yaml
+
 cat >> synapse_data/homeserver.yaml << EOF
 enable_registration: true
 max_upload_size: 500M
@@ -197,8 +281,10 @@ email:
   notif_from: "Matrix Server <${SMTP_USER}>"
   app_name: Matrix
 EOF
-if [ "$ENABLE_OIDC" = "y" ]; then  
-    cat >> synapse_data/homeserver.yaml << EOF
+
+# 配置 OIDC（单点登录）
+if [ "$ENABLE_OIDC" = "y" ]; then
+  cat >> synapse_data/homeserver.yaml << EOF
 oidc_providers:
   - idp_id: google
     idp_name: Google
@@ -230,39 +316,93 @@ oidc_providers:
         display_name_template: "{{ user.name }}"
 EOF
 fi
-if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
-  echo "启动 Synapse 服务并等待其完全可用..."
-  docker compose up -d synapse
-  for i in {1..60}; do
-    if docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
-      echo "Synapse 服务已就绪！"
-      break
-    fi
-    echo "Synapse 服务尚未就绪，等待 $i/60..."
-    sleep 1
-  done
-  if ! docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
-    echo "错误：无法连接到 Synapse 服务（http://localhost:8008），请检查日志！"
+
+# 部署 Maubot
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  echo "部署 Maubot..."
+  mkdir -p /root/matrix/maubot_data
+  cd /root/matrix
+
+  # 生成 Maubot 配置文件
+  docker run --rm -v /root/matrix/maubot_data:/data dock.mau.dev/maubot/maubot:latest
+  if [ ! -f "maubot_data/config.yaml" ]; then
+    echo "错误：Maubot 配置文件 config.yaml 未生成！"
+    exit 1
+  fi
+
+  # 注册 Maubot 机器人账号
+  echo "注册 Maubot 机器人账号 @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}..."
+  if ! docker exec -i synapse register_new_matrix_user -u "${MAUBOT_USERNAME}" -p "${MAUBOT_PASSWORD}" -c /data/homeserver.yaml http://localhost:8008; then
+    echo "错误：Maubot 机器人账号注册失败，请检查 Synapse 日志！"
     docker compose logs synapse
     exit 1
   fi
+
+  # 获取机器人访问令牌
+  MAUBOT_ACCESS_TOKEN=$(docker exec -i synapse curl -s -X POST -d "{\"type\":\"m.login.password\",\"user\":\"@${MAUBOT_USERNAME}:${MATRIX_DOMAIN}\",\"password\":\"${MAUBOT_PASSWORD}\"}" http://localhost:8008/_matrix/client/r0/login | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+  if [ -z "$MAUBOT_ACCESS_TOKEN" ]; then
+    echo "错误：无法获取 Maubot 访问令牌，请检查账号或 Synapse 服务！"
+    docker compose logs synapse
+    exit 1
+  fi
+
+  # 配置 Maubot 的 config.yaml
+  sed -i "s|homeserver: https://matrix.example.com|homeserver: https://${MATRIX_DOMAIN}|" maubot_data/config.yaml
+  sed -i "s|user_id: @bot:example.com|user_id: @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}|" maubot_data/config.yaml
+  sed -i "s|access_token: null|access_token: ${MAUBOT_ACCESS_TOKEN}|" maubot_data/config.yaml
+  sed -i "s|default: false|default: true|" maubot_data/config.yaml
+  sed -i "s|level: INFO|level: DEBUG|" maubot_data/config.yaml
+  sed -i "/^admins:/a \ \ \"@${ADMIN_USERNAME}:${MATRIX_DOMAIN}\": true" maubot_data/config.yaml
+
+  # 配置 Synapse 的 Application Service
+  if [ ! -f "maubot_data/maubot-registration.yaml" ]; then
+    echo "错误：Maubot 注册文件 maubot-registration.yaml 未生成！"
+    exit 1
+  fi
+  cp maubot_data/maubot-registration.yaml synapse_data/
+  sed -i "/app_service_config_files:/a \ \ - /data/maubot-registration.yaml" synapse_data/homeserver.yaml
+fi
+
+# 启动 Synapse 服务
+echo "启动 Synapse 服务并等待其完全可用..."
+docker compose up -d synapse
+for i in {1..60}; do
+  if docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+    echo "Synapse 服务已就绪！"
+    break
+  fi
+  echo "Synapse 服务尚未就绪，等待 $i/60..."
+  sleep 1
+done
+if ! docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+  echo "错误：无法连接到 Synapse 服务（http://localhost:8008），请检查日志！"
+  docker compose logs synapse
+  exit 1
+fi
+
+# 注册 Synapse 管理员用户
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   echo "注册管理员用户 ${ADMIN_USERNAME}..."
   if ! docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008; then
     echo "错误：管理员用户注册失败，请检查 Synapse 日志！"
     docker compose logs synapse
     exit 1
   fi
-echo "部署 Synapse-Admin..."
-mkdir -p /root/synapse-admin
-cd /root/synapse-admin
-touch config.json
-cat > config.json << EOF
+fi
+
+# 部署 Synapse-Admin
+if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
+  echo "部署 Synapse-Admin..."
+  mkdir -p /root/synapse-admin
+  cd /root/synapse-admin
+  touch config.json
+  cat > config.json << EOF
 {
   "restrictBaseUrl": "https://${MATRIX_DOMAIN}"
 }
 EOF
-touch docker-compose.yml
-cat > docker-compose.yml << EOF
+  touch docker-compose.yml
+  cat > docker-compose.yml << EOF
 services:
   synapse-admin:
     image: awesometechnologies/synapse-admin:0.10.4
@@ -288,8 +428,10 @@ networks:
     name: matrix_network
     external: true
 EOF
-docker compose up -d
+  docker compose up -d
 fi
+
+# 部署 Nginx
 echo "部署 Nginx..."
 mkdir -p /root/nginx
 cd /root/nginx
@@ -337,6 +479,7 @@ volumes:
   certs:
   acme:
 EOF
+
 mkdir -p /var/lib/docker/volumes/nginx_vhost/_data
 cat > /var/lib/docker/volumes/nginx_vhost/_data/${MATRIX_DOMAIN} << EOF
 client_max_body_size 500M;
@@ -344,17 +487,27 @@ location /.well-known/matrix/server {
     return 200 '{"m.server": "${MATRIX_DOMAIN}:443"}';
 }
 EOF
+
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   cat > /var/lib/docker/volumes/nginx_vhost/_data/${ADMIN_DOMAIN} << EOF
 client_max_body_size 10M;
 EOF
 fi
+
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  cat > /var/lib/docker/volumes/nginx_vhost/_data/${MAUBOT_DOMAIN} << EOF
+client_max_body_size 10M;
+EOF
+fi
+
 docker compose up -d
+
+# 部署 Element-Web
 if [ "$ENABLE_ELEMENT" = "y" ]; then
-    echo "部署Element-Web客户端..."
-    mkdir -p /root/element
-    cd /root/element
-    cat > docker-compose.yml << EOF
+  echo "部署Element-Web客户端..."
+  mkdir -p /root/element
+  cd /root/element
+  cat > docker-compose.yml << EOF
 services:
   element:
     image: vectorim/element-web:v1.10.0
@@ -375,7 +528,7 @@ networks:
     name: matrix_network
     external: true
 EOF
-    cat > config.${ELEMENT_DOMAIN}.json << EOF
+  cat > config.${ELEMENT_DOMAIN}.json << EOF
 {
   "default_server_config": {
     "m.homeserver": {
@@ -400,15 +553,43 @@ EOF
   "permalink_prefix": "https://${ELEMENT_DOMAIN}"
 }
 EOF
-    docker compose up -d
+  docker compose up -d
 fi
+
+# 启动 Maubot 服务（如果启用）
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  echo "启动 Maubot 服务..."
+  cd /root/matrix
+  docker compose up -d maubot
+  for i in {1..60}; do
+    if docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
+      echo "Maubot 服务已就绪！"
+      break
+    fi
+    echo "Maubot 服务尚未就绪，等待 $i/60..."
+    sleep 1
+  done
+  if ! docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
+    echo "错误：无法连接到 Maubot 服务（http://localhost:29316），请检查日志！"
+    docker compose logs maubot
+    exit 1
+  fi
+fi
+
+# 输出部署结果
 echo "Matrix Synapse服务器安装完成！"
 echo "访问Matrix: https://${MATRIX_DOMAIN}"
 if [ "$ENABLE_ELEMENT" = "y" ]; then
-    echo "访问Element: https://${ELEMENT_DOMAIN}"
+  echo "访问Element: https://${ELEMENT_DOMAIN}"
 fi
 if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
-    echo "访问Synapse-Admin: https://${ADMIN_DOMAIN}"
-    echo "管理员账号: ${ADMIN_USERNAME}"
-    echo "管理员密码: ${ADMIN_PASSWORD}"
+  echo "访问Synapse-Admin: https://${ADMIN_DOMAIN}"
+  echo "管理员账号: ${ADMIN_USERNAME}"
+  echo "管理员密码: ${ADMIN_PASSWORD}"
+fi
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  echo "访问Maubot管理界面: https://${MAUBOT_DOMAIN}/_maubot/"
+  echo "Maubot 机器人账号: @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}"
+  echo "Maubot 机器人密码: ${MAUBOT_PASSWORD}"
+  echo "Maubot 管理用户: @${ADMIN_USERNAME}:${MATRIX_DOMAIN}"
 fi
