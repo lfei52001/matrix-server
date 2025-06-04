@@ -314,7 +314,8 @@ fi
 # 部署 Maubot
 if [ "$ENABLE_MAUBOT" = "y" ]; then
   echo "部署 Maubot..."
-  mkdir -p /root/maubot
+  mkdir -p /root/maubot/maubot_data
+  chmod 755 /root/maubot/maubot_data
   cd /root/maubot
 
   # 创建 Maubot 的 docker-compose.yml
@@ -348,14 +349,27 @@ EOF
   # 生成 Maubot 配置文件
   echo "生成 Maubot 配置文件..."
   docker run --rm -v /root/maubot/maubot_data:/data dock.mau.dev/maubot/maubot:latest
+  sleep 5  # 增加延迟以确保文件写入完成
   if [ ! -f "maubot_data/config.yaml" ]; then
     echo "错误：Maubot 配置文件 config.yaml 未生成！"
+    echo "请检查 /root/maubot/maubot_data 目录权限和 Docker 卷挂载。"
+    ls -la /root/maubot/maubot_data
+    exit 1
+  fi
+  if [ ! -f "maubot_data/maubot-registration.yaml" ]; then
+    echo "错误：Maubot 注册文件 maubot-registration.yaml 未生成！"
+    echo "请检查以下内容："
+    echo "1. 确认 Maubot 镜像版本是否正确（尝试指定版本如 dock.mau.dev/maubot/maubot:v0.14.0）。"
+    echo "2. 检查 /root/maubot/maubot_data 目录权限："
+    ls -la /root/maubot/maubot_data
+    echo "3. 尝试手动运行容器生成文件："
+    echo "   docker run --rm -v /root/maubot/maubot_data:/data dock.mau.dev/maubot/maubot:latest"
     exit 1
   fi
 
   # 注册 Maubot 机器人账号
   echo "注册 Maubot 机器人账号 @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}..."
-  if ! docker exec -i synapse register_new_matrix_user -u "${MAUBOT_USERNAME}" -p "${MAUBOT_PASSWORD}" -c /data/homeserver.yaml http://localhost:8008; then
+  if ! docker exec -i synapse register_new_matrix_user -u "${MAUBOT_USERNAME}" -p "${MAUBOT_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008; then
     echo "错误：Maubot 机器人账号注册失败，请检查 Synapse 日志！"
     docker compose -f /root/matrix/docker-compose.yml logs synapse
     exit 1
@@ -378,10 +392,6 @@ EOF
   sed -i "/^admins:/a \ \ \"@${ADMIN_USERNAME}:${MATRIX_DOMAIN}\": true" maubot_data/config.yaml
 
   # 配置 Synapse 的 Application Service
-  if [ ! -f "maubot_data/maubot-registration.yaml" ]; then
-    echo "错误：Maubot 注册文件 maubot-registration.yaml 未生成！"
-    exit 1
-  fi
   cp maubot_data/maubot-registration.yaml /root/matrix/synapse_data/
   sed -i "/app_service_config_files:/a \ \ - /data/maubot-registration.yaml" /root/matrix/synapse_data/homeserver.yaml
 
