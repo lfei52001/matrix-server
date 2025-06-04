@@ -70,7 +70,6 @@ fi
 echo "是否部署Element-Web客户端？(y/n，默认 y)"
 read -r ENABLE_ELEMENT
 ENABLE_ELEMENT=$(echo "${ENABLE_ELEMENT:-y}" | tr '[:upper:]' '[:lower:]')
-
 if [ "$ENABLE_ELEMENT" = "y" ]; then
   echo "请输入Element-Web客户端域名（例如 element.example.com）："
   read -r ELEMENT_DOMAIN
@@ -186,41 +185,9 @@ services:
     networks:
       - matrix_network
     restart: unless-stopped
-EOF
-
-if [ "$ENABLE_MAUBOT" = "y" ]; then
-  cat >> docker-compose.yml << EOF
-  maubot:
-    image: dock.mau.dev/maubot/maubot:latest
-    container_name: maubot
-    environment:
-      VIRTUAL_HOST: "${MAUBOT_DOMAIN}"
-      VIRTUAL_PORT: 29316
-      LETSENCRYPT_HOST: "${MAUBOT_DOMAIN}"
-      LETSENCRYPT_EMAIL: "${EMAIL_ADDRESS}"
-    volumes:
-      - ./maubot_data:/data
-    ports:
-      - "29316:29316"
-    networks:
-      - matrix_network
-    restart: unless-stopped
-EOF
-fi
-
-cat >> docker-compose.yml << EOF
 volumes:
   postgres_data:
   synapse_data:
-EOF
-
-if [ "$ENABLE_MAUBOT" = "y" ]; then
-  cat >> docker-compose.yml << EOF
-  maubot_data:
-EOF
-fi
-
-cat >> docker-compose.yml << EOF
 networks:
   matrix_network:
     external: true
@@ -317,53 +284,7 @@ oidc_providers:
 EOF
 fi
 
-# 部署 Maubot
-if [ "$ENABLE_MAUBOT" = "y" ]; then
-  echo "部署 Maubot..."
-  mkdir -p /root/matrix/maubot_data
-  cd /root/matrix
-
-  # 生成 Maubot 配置文件
-  docker run --rm -v /root/matrix/maubot_data:/data dock.mau.dev/maubot/maubot:latest
-  if [ ! -f "maubot_data/config.yaml" ]; then
-    echo "错误：Maubot 配置文件 config.yaml 未生成！"
-    exit 1
-  fi
-
-  # 注册 Maubot 机器人账号
-  echo "注册 Maubot 机器人账号 @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}..."
-  if ! docker exec -i synapse register_new_matrix_user -u "${MAUBOT_USERNAME}" -p "${MAUBOT_PASSWORD}" -c /data/homeserver.yaml http://localhost:8008; then
-    echo "错误：Maubot 机器人账号注册失败，请检查 Synapse 日志！"
-    docker compose logs synapse
-    exit 1
-  fi
-
-  # 获取机器人访问令牌
-  MAUBOT_ACCESS_TOKEN=$(docker exec -i synapse curl -s -X POST -d "{\"type\":\"m.login.password\",\"user\":\"@${MAUBOT_USERNAME}:${MATRIX_DOMAIN}\",\"password\":\"${MAUBOT_PASSWORD}\"}" http://localhost:8008/_matrix/client/r0/login | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
-  if [ -z "$MAUBOT_ACCESS_TOKEN" ]; then
-    echo "错误：无法获取 Maubot 访问令牌，请检查账号或 Synapse 服务！"
-    docker compose logs synapse
-    exit 1
-  fi
-
-  # 配置 Maubot 的 config.yaml
-  sed -i "s|homeserver: https://matrix.example.com|homeserver: https://${MATRIX_DOMAIN}|" maubot_data/config.yaml
-  sed -i "s|user_id: @bot:example.com|user_id: @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}|" maubot_data/config.yaml
-  sed -i "s|access_token: null|access_token: ${MAUBOT_ACCESS_TOKEN}|" maubot_data/config.yaml
-  sed -i "s|default: false|default: true|" maubot_data/config.yaml
-  sed -i "s|level: INFO|level: DEBUG|" maubot_data/config.yaml
-  sed -i "/^admins:/a \ \ \"@${ADMIN_USERNAME}:${MATRIX_DOMAIN}\": true" maubot_data/config.yaml
-
-  # 配置 Synapse 的 Application Service
-  if [ ! -f "maubot_data/maubot-registration.yaml" ]; then
-    echo "错误：Maubot 注册文件 maubot-registration.yaml 未生成！"
-    exit 1
-  fi
-  cp maubot_data/maubot-registration.yaml synapse_data/
-  sed -i "/app_service_config_files:/a \ \ - /data/maubot-registration.yaml" synapse_data/homeserver.yaml
-fi
-
-# 启动 Synapse 服务
+# 启动 Synapse 服务并等待其完全可用
 echo "启动 Synapse 服务并等待其完全可用..."
 docker compose up -d synapse
 for i in {1..60}; do
@@ -386,6 +307,115 @@ if [ "$ENABLE_SYNAPSE_ADMIN" = "y" ]; then
   if ! docker exec -i synapse register_new_matrix_user -u "${ADMIN_USERNAME}" -p "${ADMIN_PASSWORD}" -a -c /data/homeserver.yaml http://localhost:8008; then
     echo "错误：管理员用户注册失败，请检查 Synapse 日志！"
     docker compose logs synapse
+    exit 1
+  fi
+fi
+
+# 部署 Maubot
+if [ "$ENABLE_MAUBOT" = "y" ]; then
+  echo "部署 Maubot..."
+  mkdir -p /root/maubot
+  cd /root/maubot
+
+  # 创建 Maubot 的 docker-compose.yml
+  cat > docker-compose.yml << EOF
+services:
+  maubot:
+    image: dock.mau.dev/maubot/maubot:latest
+    container_name: maubot
+    environment:
+      VIRTUAL_HOST: "${MAUBOT_DOMAIN}"
+      VIRTUAL_PORT: 29316
+      LETSENCRYPT_HOST: "${MAUBOT_DOMAIN}"
+      LETSENCRYPT_EMAIL: "${EMAIL_ADDRESS}"
+    volumes:
+      - ./maubot_data:/data
+    ports:
+      - "29316:29316"
+    depends_on:
+      - synapse
+    networks:
+      - matrix_network
+    restart: unless-stopped
+volumes:
+  maubot_data:
+networks:
+  matrix_network:
+    external: true
+    name: matrix_network
+EOF
+
+  # 生成 Maubot 配置文件
+  echo "生成 Maubot 配置文件..."
+  docker run --rm -v /root/maubot/maubot_data:/data dock.mau.dev/maubot/maubot:latest
+  if [ ! -f "maubot_data/config.yaml" ]; then
+    echo "错误：Maubot 配置文件 config.yaml 未生成！"
+    exit 1
+  fi
+
+  # 注册 Maubot 机器人账号
+  echo "注册 Maubot 机器人账号 @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}..."
+  if ! docker exec -i synapse register_new_matrix_user -u "${MAUBOT_USERNAME}" -p "${MAUBOT_PASSWORD}" -c /data/homeserver.yaml http://localhost:8008; then
+    echo "错误：Maubot 机器人账号注册失败，请检查 Synapse 日志！"
+    docker compose -f /root/matrix/docker-compose.yml logs synapse
+    exit 1
+  fi
+
+  # 获取机器人访问令牌
+  MAUBOT_ACCESS_TOKEN=$(docker exec -i synapse curl -s -X POST -d "{\"type\":\"m.login.password\",\"user\":\"@${MAUBOT_USERNAME}:${MATRIX_DOMAIN}\",\"password\":\"${MAUBOT_PASSWORD}\"}" http://localhost:8008/_matrix/client/r0/login | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+  if [ -z "$MAUBOT_ACCESS_TOKEN" ]; then
+    echo "错误：无法获取 Maubot 访问令牌，请检查账号或 Synapse 服务！"
+    docker compose -f /root/matrix/docker-compose.yml logs synapse
+    exit 1
+  fi
+
+  # 配置 Maubot 的 config.yaml
+  sed -i "s|homeserver: https://matrix.example.com|homeserver: https://${MATRIX_DOMAIN}|" maubot_data/config.yaml
+  sed -i "s|user_id: @bot:example.com|user_id: @${MAUBOT_USERNAME}:${MATRIX_DOMAIN}|" maubot_data/config.yaml
+  sed -i "s|access_token: null|access_token: ${MAUBOT_ACCESS_TOKEN}|" maubot_data/config.yaml
+  sed -i "s|default: false|default: true|" maubot_data/config.yaml
+  sed -i "s|level: INFO|level: DEBUG|" maubot_data/config.yaml
+  sed -i "/^admins:/a \ \ \"@${ADMIN_USERNAME}:${MATRIX_DOMAIN}\": true" maubot_data/config.yaml
+
+  # 配置 Synapse 的 Application Service
+  if [ ! -f "maubot_data/maubot-registration.yaml" ]; then
+    echo "错误：Maubot 注册文件 maubot-registration.yaml 未生成！"
+    exit 1
+  fi
+  cp maubot_data/maubot-registration.yaml /root/matrix/synapse_data/
+  sed -i "/app_service_config_files:/a \ \ - /data/maubot-registration.yaml" /root/matrix/synapse_data/homeserver.yaml
+
+  # 重启 Synapse 以加载 Application Service 配置
+  echo "重启 Synapse 以应用 Maubot 注册配置..."
+  docker compose -f /root/matrix/docker-compose.yml restart synapse
+  for i in {1..60}; do
+    if docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+      echo "Synapse 服务重启成功！"
+      break
+    fi
+    echo "Synapse 服务尚未就绪，等待 $i/60..."
+    sleep 1
+  done
+  if ! docker exec synapse curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+    echo "错误：Synapse 服务重启失败，请检查日志！"
+    docker compose -f /root/matrix/docker-compose.yml logs synapse
+    exit 1
+  fi
+
+  # 启动 Maubot 服务
+  echo "启动 Maubot 服务..."
+  docker compose up -d
+  for i in {1..60}; do
+    if docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
+      echo "Maubot 服务已就绪！"
+      break
+    fi
+    echo "Maubot 服务尚未就绪，等待 $i/60..."
+    sleep 1
+  done
+  if ! docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
+    echo "错误：无法连接到 Maubot 服务（http://localhost:29316），请检查日志！"
+    docker compose logs
     exit 1
   fi
 fi
@@ -554,26 +584,6 @@ EOF
 }
 EOF
   docker compose up -d
-fi
-
-# 启动 Maubot 服务（如果启用）
-if [ "$ENABLE_MAUBOT" = "y" ]; then
-  echo "启动 Maubot 服务..."
-  cd /root/matrix
-  docker compose up -d maubot
-  for i in {1..60}; do
-    if docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
-      echo "Maubot 服务已就绪！"
-      break
-    fi
-    echo "Maubot 服务尚未就绪，等待 $i/60..."
-    sleep 1
-  done
-  if ! docker exec maubot curl -s http://localhost:29316/_maubot/ping > /dev/null; then
-    echo "错误：无法连接到 Maubot 服务（http://localhost:29316），请检查日志！"
-    docker compose logs maubot
-    exit 1
-  fi
 fi
 
 # 输出部署结果
